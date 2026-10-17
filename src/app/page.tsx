@@ -1,3 +1,7 @@
+"use client";
+
+import { useState } from "react";
+
 type Student = {
   id: number;
   name: string;
@@ -54,22 +58,57 @@ const totalPaidFees = paidStudents.reduce(
   (total, student) => total + student.monthlyFee,0
 );
 
-const totalunPaidFees = unpaidStudents.reduce(
+const totalUnPaidFees = unpaidStudents.reduce(
   (total, student) => total + student.monthlyFee,0
 );
 
 
+
 export default function Home() {
+  const [searchQuery, setSearchQuery] = useState<string>("");
+
+  const filteredStudents = students.filter((student) =>
+    student.name
+      .toLowerCase()
+      .includes(searchQuery.trim().toLowerCase())
+  );
+
+  {filteredStudents.length === 0 && (
+  <p>No students found</p>
+)}
+
+
   return (
+
     <main className="min-h-screen bg-slate-50 p-8 text-slate-900">
       <div className="mx-auto max-w-4xl">
         <h1 className="text-3xl font-bold">
           Tuition Management System
         </h1>
 
-        <p className="mt-2 text-slate-600">
-          Student Management / 学生管理
-        </p>
+
+        <div className="mt-6 rounded-xl bg-white p-6 shadow">
+          <label
+            htmlFor="student-search"
+            className="block text-sm font-medium"
+          >
+            Search Student / 搜索学生
+          </label>
+
+          <input
+            id="student-search"
+            type="text"
+            placeholder="Enter student name..."
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            className="mt-2 w-full rounded-lg border border-slate-300 p-3"
+          />
+
+          <p className="mt-3 text-sm text-slate-500">
+            You are searching for: {searchQuery}
+          </p>
+        </div>
+
         <div className="mt-6 rounded-xl bg-white p-6 shadow">
           <h2 className="text-lg font-semibold">
             Total Students / 学生总数
@@ -126,7 +165,7 @@ export default function Home() {
           </h2>
 
           <p className="mt-2 text-3xl font-bold text-red-600">
-            RM {totalunPaidFees}
+            RM {totalUnPaidFees}
           </p>
         </div>
 
@@ -135,8 +174,18 @@ export default function Home() {
             Student List / 学生名单
           </h2>
 
+          {filteredStudents.length === 0 && (
+            <p
+              role="status"
+              className="mt-4 rounded-lg bg-yellow-50 p-4 text-sm text-yellow-800"
+            >
+              No students found / 找不到学生。
+              Please try another name.
+            </p>
+          )}
+
           <ul className="mt-4 space-y-3">
-            {students.map((student) => (
+            {filteredStudents.map((student) => (
               <li
                 key={student.id}
                 className="flex justify-between rounded-lg bg-slate-100 p-4"
@@ -147,7 +196,7 @@ export default function Home() {
                     {student.subject}
                   </p>
 
-                  
+
                   <p
                     className={
                       student.paymentStatus === "paid"
