@@ -73,10 +73,6 @@ export default function Home() {
       .includes(searchQuery.trim().toLowerCase())
   );
 
-  {filteredStudents.length === 0 && (
-  <p>No students found</p>
-)}
-
 
   return (
 
