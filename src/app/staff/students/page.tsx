@@ -96,6 +96,7 @@ export default async function StaffStudentsPage() {
                     <th className="p-3">Student Name</th>
                     <th className="p-3">Monthly Fee</th>
                     <th className="p-3">Status</th>
+                    <th className="p-3">Actions</th>
                   </tr>
                 </thead>
 
@@ -115,6 +116,16 @@ export default async function StaffStudentsPage() {
                       <td className="p-3">
                         {student.isActive ? "Active" : "Inactive"}
                       </td>
+
+                      <td className="p-3">
+                        <Link
+                          href={`/staff/students/${student.id}/edit`}
+                          className="font-medium text-blue-600 hover:underline"
+                        >
+                          Edit / 修改
+                        </Link>
+                      </td>
+                      
                     </tr>
                   ))}
                 </tbody>
