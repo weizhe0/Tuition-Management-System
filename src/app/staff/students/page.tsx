@@ -1,10 +1,16 @@
 
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { requireRole } from "@/lib/role-guard";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+type PageProps = {
+  searchParams: Promise<{
+    status?: string;
+  }>;
+};
 
 function formatMoney(sen: number) {
   return new Intl.NumberFormat("en-MY", {
@@ -13,131 +19,202 @@ function formatMoney(sen: number) {
   }).format(sen / 100);
 }
 
-export default async function StaffStudentsPage() {
-  // Temporary development-only access.
-  // Real staff authentication will be added later.
-  if (process.env.NODE_ENV !== "development") {
-    notFound();
-  }
+export default async function StaffStudentsPage({
+  searchParams,
+}: PageProps) {
+  // Only logged-in STAFF can read student information.
+  await requireRole("STAFF");
 
+  const { status } = await searchParams;
+
+  const messages: Record<string, string> = {
+    created: "Student created successfully.",
+    updated: "Student updated successfully.",
+  };
+
+  const message = status ? messages[status] : undefined;
+
+  // Read real student records from PostgreSQL.
   const students = await prisma.student.findMany({
-    select: {
-      id: true,
-      fullName: true,
-      isActive: true,
-      feePlan: {
+    orderBy: {
+      createdAt: "desc",
+    },
+    include: {
+      feePlan: true,
+      _count: {
         select: {
-          monthlyFeeSen: true,
+          enrollments: true,
         },
       },
     },
-    orderBy: {
-      fullName: "asc",
-    },
   });
 
+  const activeStudents = students.filter(
+    (student) => student.isActive
+  ).length;
+
   return (
-    <main className="min-h-screen bg-slate-50 p-6 text-slate-900">
-      <div className="mx-auto max-w-5xl">
-        <Link
-          href="/staff"
-          className="text-sm font-medium text-blue-600 hover:underline"
-        >
-          ← Back to Staff Dashboard
-        </Link>
+    <main className="min-h-screen bg-slate-100 p-6 text-slate-900">
+      <div className="mx-auto max-w-6xl space-y-6">
+        <header className="rounded-2xl bg-white p-6 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-bold text-blue-700">
+                STAFF PORTAL
+              </p>
 
-        <header className="mt-6 rounded-xl bg-white p-6 shadow-sm">
-          <h1 className="text-3xl font-bold">
-            Student Management / 学生管理
-          </h1>
+              <h1 className="mt-2 text-3xl font-bold">
+                Student Management
+              </h1>
 
-          <p className="mt-2 text-slate-600">
-            Student records from PostgreSQL using Prisma.
-          </p>
+              <p className="mt-2 text-slate-500">
+                Manage student records and monthly fee plans.
+              </p>
+            </div>
 
-          <div className="mt-6 rounded-lg bg-blue-50 p-4">
-            <p className="text-sm text-blue-700">
-              Total Students / 学生人数
-            </p>
+            <div className="flex flex-wrap gap-3">
+              <Link
+                href="/staff"
+                className="rounded-lg border border-slate-300 px-4 py-3 text-sm font-medium hover:bg-slate-50"
+              >
+                Back to Dashboard
+              </Link>
 
-            <p className="mt-1 text-3xl font-bold text-blue-900">
-              {students.length}
-            </p>
+              <Link
+                href="/staff/students/new"
+                className="rounded-lg bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+              >
+                + Add Student
+              </Link>
+            </div>
           </div>
         </header>
 
-        <section className="mt-6 rounded-xl bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold">
-            Student List / 学生名单
+        {message && (
+          <p
+            role="status"
+            className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"
+          >
+            {message}
+          </p>
+        )}
+
+        <section className="grid gap-4 sm:grid-cols-3">
+          <div className="rounded-2xl bg-white p-6 shadow-sm">
+            <p className="text-sm text-slate-500">
+              Total Students
+            </p>
+            <p className="mt-3 text-3xl font-bold">
+              {students.length}
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-white p-6 shadow-sm">
+            <p className="text-sm text-slate-500">
+              Active Students
+            </p>
+            <p className="mt-3 text-3xl font-bold text-emerald-700">
+              {activeStudents}
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-white p-6 shadow-sm">
+            <p className="text-sm text-slate-500">
+              Inactive Students
+            </p>
+            <p className="mt-3 text-3xl font-bold text-slate-600">
+              {students.length - activeStudents}
+            </p>
+          </div>
+        </section>
+
+        <section className="rounded-2xl bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-bold">
+            Registered Students
           </h2>
 
-          <Link
-            href="/staff/students/new"
-            className="mt-4 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          >
-            + Add Student / 新增学生
-          </Link>
-
           {students.length === 0 ? (
-            <div className="mt-6 rounded-lg bg-slate-100 p-6 text-center">
-              <p className="font-medium">
-                No students in database
+            <div className="mt-6 rounded-xl bg-slate-50 p-8 text-center">
+              <p className="font-medium text-slate-700">
+                No students found.
               </p>
 
-              <p className="mt-2 text-sm text-slate-600">
-                目前数据库没有学生。下一步我们会加入测试学生资料。
-              </p>
+              <Link
+                href="/staff/students/new"
+                className="mt-4 inline-block text-blue-700 hover:underline"
+              >
+                Add your first student
+              </Link>
             </div>
           ) : (
-            <div className="mt-6 overflow-x-auto">
-              <table className="w-full border-collapse text-left">
-                <thead>
-                  <tr className="border-b bg-slate-50">
-                    <th className="p-3">Student Name</th>
-                    <th className="p-3">Monthly Fee</th>
-                    <th className="p-3">Status</th>
-                    <th className="p-3">Actions</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {students.map((student) => (
-                    <tr key={student.id} className="border-b">
-                      <td className="p-3 font-medium">
+            <div className="mt-6 space-y-4">
+              {students.map((student) => (
+                <article
+                  key={student.id}
+                  className="rounded-xl border border-slate-200 p-5"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-lg font-bold">
                         {student.fullName}
-                      </td>
+                      </h3>
 
-                      <td className="p-3">
-                        {student.feePlan
-                          ? formatMoney(student.feePlan.monthlyFeeSen)
-                          : "Not set"}
-                      </td>
+                      <p className="mt-2 text-sm text-slate-600">
+                        Email: {student.email ?? "Not provided"}
+                      </p>
 
-                      <td className="p-3">
-                        {student.isActive ? "Active" : "Inactive"}
-                      </td>
+                      <p className="mt-1 text-sm text-slate-600">
+                        Phone: {student.phone ?? "Not provided"}
+                      </p>
 
-                      <td className="p-3">
-                        <Link
-                          href={`/staff/students/${student.id}/edit`}
-                          className="font-medium text-blue-600 hover:underline"
-                        >
-                          Edit / 修改
-                        </Link>
-                      </td>
-                      
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      <p className="mt-2 text-sm text-slate-600">
+                        Monthly Fee:{" "}
+                        <span className="font-semibold text-blue-700">
+                          {student.feePlan
+                            ? formatMoney(
+                                student.feePlan.monthlyFeeSen
+                              )
+                            : "Not configured"}
+                        </span>
+                      </p>
+
+                      <p className="mt-1 text-sm text-slate-500">
+                        Enrolled Classes:{" "}
+                        {student._count.enrollments}
+                      </p>
+
+                      <p className="mt-1 text-xs text-slate-500">
+                        Login Account:{" "}
+                        {student.userId ? "Linked" : "Not Linked"}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col items-end gap-3">
+                      <span
+                        className={
+                          student.isActive
+                            ? "rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700"
+                            : "rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600"
+                        }
+                      >
+                        {student.isActive
+                          ? "Active"
+                          : "Inactive"}
+                      </span>
+
+                      <Link
+                        href={`/staff/students/${student.id}/edit`}
+                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                      >
+                        Edit Student
+                      </Link>
+                    </div>
+                  </div>
+                </article>
+              ))}
             </div>
           )}
         </section>
-
-        <p className="mt-6 text-sm text-amber-700">
-          Development preview only. Do not use real student data
-          before authentication and authorization are implemented.
-        </p>
       </div>
     </main>
   );

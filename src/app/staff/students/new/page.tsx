@@ -1,139 +1,161 @@
 
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { notFound, redirect } from "next/navigation";
+import {
+  requireRole,
+  assertRole,
+} from "@/lib/role-guard";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function addDemoStudent(formData: FormData) {
-  "use server";
-
-  // This action is for local development only.
-  if (process.env.NODE_ENV !== "development") {
-    throw new Error("Student creation is disabled.");
-  }
-
-  const connectionString = process.env.DATABASE_URL;
-
-  if (!connectionString) {
-    throw new Error("DATABASE_URL is missing.");
-  }
-
-  const databaseUrl = new URL(connectionString);
-
-  const isLocalDatabase =
-    ["localhost", "127.0.0.1"].includes(databaseUrl.hostname) &&
-    databaseUrl.pathname === "/tuition_management_v2" &&
-    databaseUrl.username === "tuition_app";
-
-  if (!isLocalDatabase) {
-    throw new Error("Only the local demo database is allowed.");
-  }
-
-  const fullName = String(formData.get("fullName") ?? "").trim();
-  const email = String(formData.get("email") ?? "")
-    .trim()
-    .toLowerCase();
-  const monthlyFee = String(
-    formData.get("monthlyFee") ?? ""
-  ).trim();
-
-  const validEmail = /^[^\s@]+@[^\s@]+\.test$/.test(email);
-  const validFee = /^\d{1,5}(?:\.\d{1,2})?$/.test(monthlyFee);
-
-  if (
-    !fullName ||
-    fullName.length > 100 ||
-    !validEmail ||
-    !validFee
-  ) {
-    redirect("/staff/students/new?error=invalid");
-  }
-
-  // Convert RM to integer sen without floating-point calculations.
-  const [ringgit, cents = ""] = monthlyFee.split(".");
-
-  const monthlyFeeSen =
-    Number(ringgit) * 100 +
-    Number(cents.padEnd(2, "0"));
-
-  const existingStudent = await prisma.student.findUnique({
-    where: { email },
-    select: { id: true },
-  });
-
-  if (existingStudent) {
-    redirect("/staff/students/new?error=duplicate");
-  }
-
-  await prisma.student.create({
-    data: {
-      fullName,
-      email,
-      feePlan: {
-        create: {
-          monthlyFeeSen,
-        },
-      },
-    },
-  });
-
-  revalidatePath("/staff/students");
-  redirect("/staff/students");
-}
-
 type PageProps = {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{
+    error?: string;
+  }>;
 };
 
-export default async function AddStudentPage({
+function getText(formData: FormData, key: string) {
+  const value = formData.get(key);
+  return typeof value === "string" ? value.trim() : "";
+}
+
+// Convert RM to sen without floating-point calculations.
+function parseMonthlyFeeSen(value: string) {
+  if (!/^\d{1,6}(\.\d{1,2})?$/.test(value)) {
+    return null;
+  }
+
+  const [ringgit, sen = ""] = value.split(".");
+  const amount =
+    Number(ringgit) * 100 +
+    Number(sen.padEnd(2, "0"));
+
+  if (
+    !Number.isSafeInteger(amount) ||
+    amount < 0 ||
+    amount > 10_000_000
+  ) {
+    return null;
+  }
+
+  return amount;
+}
+
+export default async function NewStudentPage({
   searchParams,
 }: PageProps) {
-  if (process.env.NODE_ENV !== "development") {
-    notFound();
-  }
+  // Protect the page itself.
+  await requireRole("STAFF");
 
   const { error } = await searchParams;
 
-  return (
-    <main className="min-h-screen bg-slate-50 p-6 text-slate-900">
-      <div className="mx-auto max-w-2xl">
-        <Link
-          href="/staff/students"
-          className="text-sm font-medium text-blue-600 hover:underline"
-        >
-          ← Back to Student List
-        </Link>
+  async function createStudent(formData: FormData) {
+    "use server";
 
-        <section className="mt-6 rounded-xl bg-white p-8 shadow-sm">
-          <h1 className="text-2xl font-bold">
-            Add Student / 新增学生
+    // Protect the Server Action independently.
+    await assertRole("STAFF");
+
+    const fullName = getText(formData, "fullName");
+    const emailText = getText(
+      formData,
+      "email"
+    ).toLowerCase();
+    const phoneText = getText(formData, "phone");
+
+    const email = emailText || null;
+    const phone = phoneText || null;
+
+    const monthlyFeeSen = parseMonthlyFeeSen(
+      getText(formData, "monthlyFee")
+    );
+
+    const emailValid =
+      !email ||
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+    if (
+      fullName.length < 2 ||
+      fullName.length > 100 ||
+      (email !== null && email.length > 254) ||
+      !emailValid ||
+      (phone !== null && phone.length > 40) ||
+      monthlyFeeSen === null
+    ) {
+      redirect("/staff/students/new?error=invalid");
+    }
+
+    if (email) {
+      const existing = await prisma.student.findUnique({
+        where: { email },
+        select: { id: true },
+      });
+
+      if (existing) {
+        redirect("/staff/students/new?error=duplicate");
+      }
+    }
+
+    // Create Student and Fee Plan together.
+    await prisma.student.create({
+      data: {
+        fullName,
+        email,
+        phone,
+        isActive: true,
+        feePlan: {
+          create: {
+            monthlyFeeSen,
+          },
+        },
+      },
+    });
+
+    revalidatePath("/staff/students");
+    revalidatePath("/staff");
+
+    redirect("/staff/students?status=created");
+  }
+
+  return (
+    <main className="min-h-screen bg-slate-100 p-6 text-slate-900">
+      <div className="mx-auto max-w-2xl">
+        <div className="rounded-2xl bg-white p-8 shadow-sm">
+          <p className="text-sm font-bold text-blue-700">
+            STAFF PORTAL
+          </p>
+
+          <h1 className="mt-2 text-3xl font-bold">
+            Add New Student
           </h1>
 
-          <p className="mt-2 text-sm text-amber-700">
-            Development-only form. Use fictional demo data.
+          <p className="mt-2 text-sm text-slate-500">
+            Create a student profile and monthly fee plan.
           </p>
 
           {error && (
-            <p
+            <div
               role="alert"
-              className="mt-5 rounded-lg bg-red-50 p-4 text-sm text-red-700"
+              className="mt-6 rounded-lg bg-red-50 p-4 text-sm text-red-700"
             >
               {error === "duplicate"
-                ? "This demo email already exists."
-                : "Please check the name, demo email and fee."}
-            </p>
+                ? "A student with this email already exists."
+                : "Please check the entered information."}
+            </div>
           )}
 
-          <form action={addDemoStudent} className="mt-6 space-y-5">
+          <form
+            action={createStudent}
+            className="mt-8 space-y-5"
+          >
             <div>
               <label
                 htmlFor="fullName"
-                className="mb-2 block font-medium"
+                className="mb-2 block text-sm font-medium"
               >
-                Student Name / 学生姓名
+                Full Name *
               </label>
 
               <input
@@ -141,8 +163,9 @@ export default async function AddStudentPage({
                 name="fullName"
                 type="text"
                 required
+                minLength={2}
                 maxLength={100}
-                placeholder="Jason Lee (Demo)"
+                placeholder="Example: New Student (Demo)"
                 className="w-full rounded-lg border border-slate-300 p-3"
               />
             </div>
@@ -150,51 +173,86 @@ export default async function AddStudentPage({
             <div>
               <label
                 htmlFor="email"
-                className="mb-2 block font-medium"
+                className="mb-2 block text-sm font-medium"
               >
-                Demo Email / 测试邮箱
+                Email
               </label>
 
               <input
                 id="email"
                 name="email"
                 type="email"
-                required
-                placeholder="jason.demo@example.test"
+                maxLength={254}
+                placeholder="student@example.test"
                 className="w-full rounded-lg border border-slate-300 p-3"
               />
-              <p className="mt-1 text-xs text-slate-500">
-                Only .test email addresses are allowed.
-              </p>
+            </div>
+
+            <div>
+              <label
+                htmlFor="phone"
+                className="mb-2 block text-sm font-medium"
+              >
+                Phone
+              </label>
+
+              <input
+                id="phone"
+                name="phone"
+                type="tel"
+                maxLength={40}
+                placeholder="0123456789"
+                className="w-full rounded-lg border border-slate-300 p-3"
+              />
             </div>
 
             <div>
               <label
                 htmlFor="monthlyFee"
-                className="mb-2 block font-medium"
+                className="mb-2 block text-sm font-medium"
               >
-                Monthly Fee (RM) / 每月学费
+                Monthly Fee (RM) *
               </label>
 
               <input
                 id="monthlyFee"
                 name="monthlyFee"
-                type="text"
-                inputMode="decimal"
+                type="number"
+                min="0"
+                max="100000"
+                step="0.01"
+                defaultValue="300.00"
                 required
-                placeholder="250.00"
                 className="w-full rounded-lg border border-slate-300 p-3"
               />
+
+              <p className="mt-2 text-xs text-slate-500">
+                Example: 300.00 means RM 300.00.
+              </p>
             </div>
 
-            <button
-              type="submit"
-              className="w-full rounded-lg bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-700"
-            >
-              Save Demo Student / 保存测试学生
-            </button>
+            <div className="flex flex-wrap gap-3 pt-2">
+              <button
+                type="submit"
+                className="rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white hover:bg-blue-700"
+              >
+                Save Student
+              </button>
+
+              <Link
+                href="/staff/students"
+                className="rounded-lg border border-slate-300 px-6 py-3 font-medium hover:bg-slate-50"
+              >
+                Cancel
+              </Link>
+            </div>
           </form>
-        </section>
+
+          <p className="mt-6 text-xs text-amber-700">
+            Creating a student profile does not automatically
+            create a login account.
+          </p>
+        </div>
       </div>
     </main>
   );
