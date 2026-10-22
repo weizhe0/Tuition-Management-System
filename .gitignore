@@ -41,3 +41,9 @@ yarn-error.log*
 next-env.d.ts
 
 /generated/prisma
+
+# Local AI coding tools and downloaded skills
+/.agents/
+/.claude/
+/.windsurf/
+/skills-lock.json
